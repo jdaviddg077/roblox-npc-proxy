@@ -1,5 +1,4 @@
-[phases.build]
-cmds = ["npm install"]
+providers = ["node"]
 
 [start]
 cmd = "node index.js"
