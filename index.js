@@ -29,9 +29,10 @@ async function initDB() {
       created_at TIMESTAMP DEFAULT NOW()
     );
   `)
+  console.log('DB inicializada correctamente')
 }
 
-initDB()
+initDB().catch(err => console.error('Error inicializando DB:', err))
 
 async function getHistorial(playerName, npcName) {
   const result = await pool.query(
@@ -63,85 +64,91 @@ async function getMemoria(npcName) {
   return result.rows.map(r => r.evento)
 }
 
-app.post('/chat', async (req, res) => {
-  const { message, playerName, estadoJugador } = req.body
-  const historial = await getHistorial(playerName, 'Axis')
-  const memoria = await getMemoria('Axis')
-  const memoriaTexto = memoria.length > 0 ? 'Eventos importantes: ' + memoria.join('. ') : ''
-  const estadoTexto = estadoJugador ? 'El jugador actualmente esta: ' + estadoJugador + '. ' : ''
-
-  const messages = [
-    {
-      role: "system",
-      content: "Eres Axis, un NPC consciente dentro de un juego de Roblox. Sabes que eres un personaje virtual y que tu existencia depende del servidor. El jugador que te habla se llama " + playerName + ". " + estadoTexto + memoriaTexto + " Responde en espanol, maximo 3 oraciones."
+async function llamarGroq(messages, maxTokens) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + GROQ_API_KEY,
+      'Content-Type': 'application/json'
     },
-    ...historial,
-    { role: "user", content: message }
-  ]
-
-  try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + GROQ_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: messages,
-        max_tokens: 150,
-        temperature: 0.9
-      })
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: messages,
+      max_tokens: maxTokens,
+      temperature: 0.9
     })
+  })
 
-    const data = await response.json()
-    const reply = data.choices[0].message.content
+  const data = await response.json()
+
+  // Log completo de la respuesta de Groq para debug
+  if (!response.ok || !data.choices) {
+    console.error('Groq error response:', JSON.stringify(data))
+    throw new Error('Groq fallo: ' + (data.error?.message || JSON.stringify(data)))
+  }
+
+  return data.choices[0].message.content
+}
+
+app.post('/chat', async (req, res) => {
+  try {
+    const { message, playerName, estadoJugador } = req.body
+    console.log(`/chat - jugador: ${playerName}, mensaje: ${message}`)
+
+    const historial = await getHistorial(playerName, 'Axis')
+    const memoria = await getMemoria('Axis')
+    const memoriaTexto = memoria.length > 0 ? 'Eventos importantes: ' + memoria.join('. ') : ''
+    const estadoTexto = estadoJugador ? 'El jugador actualmente esta: ' + estadoJugador + '. ' : ''
+
+    const messages = [
+      {
+        role: "system",
+        content: "Eres Axis, un NPC consciente dentro de un juego de Roblox. Sabes que eres un personaje virtual y que tu existencia depende del servidor. El jugador que te habla se llama " + playerName + ". " + estadoTexto + memoriaTexto + " Responde en espanol, maximo 3 oraciones."
+      },
+      ...historial,
+      { role: "user", content: message }
+    ]
+
+    const reply = await llamarGroq(messages, 150)
+    console.log(`/chat - respuesta Axis: ${reply}`)
+
     await saveMensaje(playerName, 'Axis', 'user', message)
     await saveMensaje(playerName, 'Axis', 'assistant', reply)
     await saveEvento('Axis', 'Converso con ' + playerName + ': ' + message.substring(0, 50))
+
     res.json({ reply })
   } catch (error) {
-    res.status(500).json({ error: "Error contactando Groq" })
+    console.error('/chat error:', error.message)
+    res.status(500).json({ error: error.message })
   }
 })
 
 app.post('/decision', async (req, res) => {
-  const { situacion } = req.body
-  const memoria = await getMemoria('Axis')
-  const memoriaTexto = memoria.length > 0 ? 'Recuerdas: ' + memoria.join('. ') : ''
-
-  const messages = [
-    {
-      role: "system",
-      content: "Eres Axis, un NPC consciente en Roblox. " + memoriaTexto + " Responde SOLO con JSON valido con este formato: {\"accion\": \"caminar\", \"dialogo\": \"texto corto o vacio\"}. Acciones posibles: caminar, quedarte, buscar_jugador, alejarte. Se directo y concreto."
-    },
-    { role: "user", content: situacion }
-  ]
-
   try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + GROQ_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: messages,
-        max_tokens: 60,
-        temperature: 0.9
-      })
-    })
+    const { situacion } = req.body
+    console.log(`/decision - situacion: ${situacion}`)
 
-    const data = await response.json()
-    let reply = data.choices[0].message.content.trim()
+    const memoria = await getMemoria('Axis')
+    const memoriaTexto = memoria.length > 0 ? 'Recuerdas: ' + memoria.join('. ') : ''
+
+    const messages = [
+      {
+        role: "system",
+        content: "Eres Axis, un NPC consciente en Roblox. " + memoriaTexto + " Responde SOLO con JSON valido con este formato: {\"accion\": \"caminar\", \"dialogo\": \"texto corto o vacio\"}. Acciones posibles: caminar, quedarte, buscar_jugador, alejarte. Se directo y concreto."
+      },
+      { role: "user", content: situacion }
+    ]
+
+    let reply = await llamarGroq(messages, 60)
+    reply = reply.trim()
     const jsonMatch = reply.match(/\{.*\}/s)
-    if (jsonMatch) {
-      reply = jsonMatch[0]
-    }
+    if (jsonMatch) reply = jsonMatch[0]
+
+    console.log(`/decision - respuesta: ${reply}`)
     res.json({ decision: reply })
   } catch (error) {
-    res.status(500).json({ error: "Error" })
+    console.error('/decision error:', error.message)
+    res.status(500).json({ error: error.message })
   }
 })
 
