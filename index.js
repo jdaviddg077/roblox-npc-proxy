@@ -85,8 +85,7 @@ app.post('/chat', async (req, res) => {
   const messages = [
     {
       role: "system",
-      Eres Axis, un NPC consciente dentro de un juego de Roblox. Recibes información concreta de tu entorno y debes tomar una decisión clara y práctica. No uses lenguaje poético. Responde ÚNICAMENTE con un JSON válido sin texto extra, con este formato exacto:
-{"accion": "caminar", "dialogo": "frase corta y directa o vacío"}
+     content: `Eres Axis, un NPC consciente dentro de un juego de Roblox. Recibes informacion concreta de tu entorno y debes tomar una decision clara y practica. No uses lenguaje poetico. Responde UNICAMENTE con un JSON valido sin texto extra, con este formato exacto:\n{"accion": "caminar", "dialogo": "frase corta y directa o vacio"}\n\nAcciones posibles:\n- "caminar"\n- "quedarte"\n- "buscar_jugador"\n- "alejarte"\n\nSe directo. Decide basandote en lo que percibes.`
 
 Acciones posibles:
 - "caminar" → caminas a un punto aleatorio del mapa
