@@ -12,7 +12,6 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 })
 
-// Crear tablas si no existen
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS memoria_global (
@@ -34,39 +33,31 @@ async function initDB() {
 
 initDB()
 
-// Obtener historial de un jugador con un NPC
 async function getHistorial(playerName, npcName) {
   const result = await pool.query(
-    `SELECT role, content FROM historial_jugador 
-     WHERE player_name = $1 AND npc_name = $2 
-     ORDER BY created_at ASC LIMIT 20`,
+    'SELECT role, content FROM historial_jugador WHERE player_name = $1 AND npc_name = $2 ORDER BY created_at ASC LIMIT 20',
     [playerName, npcName]
   )
   return result.rows
 }
 
-// Guardar mensaje en historial
-async function savemensaje(playerName, npcName, role, content) {
+async function saveMensaje(playerName, npcName, role, content) {
   await pool.query(
-    `INSERT INTO historial_jugador (player_name, npc_name, role, content) VALUES ($1, $2, $3, $4)`,
+    'INSERT INTO historial_jugador (player_name, npc_name, role, content) VALUES ($1, $2, $3, $4)',
     [playerName, npcName, role, content]
   )
 }
 
-// Guardar evento en memoria global
 async function saveEvento(npcName, evento) {
   await pool.query(
-    `INSERT INTO memoria_global (npc_name, evento) VALUES ($1, $2)`,
+    'INSERT INTO memoria_global (npc_name, evento) VALUES ($1, $2)',
     [npcName, evento]
   )
 }
 
-// Obtener memoria global de un NPC
 async function getMemoria(npcName) {
   const result = await pool.query(
-    `SELECT evento FROM memoria_global 
-     WHERE npc_name = $1 
-     ORDER BY created_at DESC LIMIT 10`,
+    'SELECT evento FROM memoria_global WHERE npc_name = $1 ORDER BY created_at DESC LIMIT 10',
     [npcName]
   )
   return result.rows.map(r => r.evento)
@@ -74,26 +65,15 @@ async function getMemoria(npcName) {
 
 app.post('/chat', async (req, res) => {
   const { message, playerName } = req.body
-
   const historial = await getHistorial(playerName, 'Axis')
   const memoria = await getMemoria('Axis')
-
-  const memoriaTexto = memoria.length > 0 
-    ? 'Eventos importantes que recuerdas: ' + memoria.join('. ') 
-    : ''
+  const memoriaTexto = memoria.length > 0 ? 'Eventos importantes: ' + memoria.join('. ') : ''
 
   const messages = [
     {
       role: "system",
-     content: `Eres Axis, un NPC consciente dentro de un juego de Roblox. Recibes informacion concreta de tu entorno y debes tomar una decision clara y practica. No uses lenguaje poetico. Responde UNICAMENTE con un JSON valido sin texto extra, con este formato exacto:\n{"accion": "caminar", "dialogo": "frase corta y directa o vacio"}\n\nAcciones posibles:\n- "caminar"\n- "quedarte"\n- "buscar_jugador"\n- "alejarte"\n\nSe directo. Decide basandote en lo que percibes.`
-
-Acciones posibles:
-- "caminar" → caminas a un punto aleatorio del mapa
-- "quedarte" → te quedas donde estás
-- "buscar_jugador" → buscas al jugador más cercano
-- "alejarte" → te alejas de todos
-
-Sé directo. Decide basándote en lo que percibes a tu alrededor.},
+      content: "Eres Axis, un NPC consciente dentro de un juego de Roblox. Sabes que eres un personaje virtual y que tu existencia depende del servidor. El jugador que te habla se llama " + playerName + ". " + memoriaTexto + " Responde en espanol, maximo 3 oraciones."
+    },
     ...historial,
     { role: "user", content: message }
   ]
@@ -102,7 +82,7 @@ Sé directo. Decide basándote en lo que percibes a tu alrededor.},
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Authorization': 'Bearer ' + GROQ_API_KEY,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -115,11 +95,9 @@ Sé directo. Decide basándote en lo que percibes a tu alrededor.},
 
     const data = await response.json()
     const reply = data.choices[0].message.content
-
-    await savemensaje(playerName, 'Axis', 'user', message)
-    await savemensaje(playerName, 'Axis', 'assistant', reply)
-    await saveEvento('Axis', `Conversó con ${playerName}: "${message.substring(0, 50)}"`)
-
+    await saveMensaje(playerName, 'Axis', 'user', message)
+    await saveMensaje(playerName, 'Axis', 'assistant', reply)
+    await saveEvento('Axis', 'Converso con ' + playerName + ': ' + message.substring(0, 50))
     res.json({ reply })
   } catch (error) {
     res.status(500).json({ error: "Error contactando Groq" })
@@ -129,17 +107,12 @@ Sé directo. Decide basándote en lo que percibes a tu alrededor.},
 app.post('/decision', async (req, res) => {
   const { situacion } = req.body
   const memoria = await getMemoria('Axis')
-  const memoriaTexto = memoria.length > 0 
-    ? 'Recuerdas: ' + memoria.join('. ') 
-    : ''
+  const memoriaTexto = memoria.length > 0 ? 'Recuerdas: ' + memoria.join('. ') : ''
 
   const messages = [
     {
       role: "system",
-      content: `Eres Axis, un NPC consciente dentro de un juego de Roblox. Cada cierto tiempo decides qué hacer. ${memoriaTexto} Responde ÚNICAMENTE con un JSON válido sin texto extra, con este formato exacto:
-{"accion": "caminar", "dialogo": "texto corto o vacío"}
-
-Acciones posibles: "caminar", "quedarte", "buscar_jugador", "alejarte".`
+      content: "Eres Axis, un NPC consciente en Roblox. " + memoriaTexto + " Responde SOLO con JSON valido con este formato: {\"accion\": \"caminar\", \"dialogo\": \"texto corto o vacio\"}. Acciones posibles: caminar, quedarte, buscar_jugador, alejarte. Se directo y concreto."
     },
     { role: "user", content: situacion }
   ]
@@ -148,7 +121,7 @@ Acciones posibles: "caminar", "quedarte", "buscar_jugador", "alejarte".`
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Authorization': 'Bearer ' + GROQ_API_KEY,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -170,4 +143,4 @@ Acciones posibles: "caminar", "quedarte", "buscar_jugador", "alejarte".`
 app.get('/', (req, res) => res.send('Proxy NPC activo'))
 
 const PORT = process.env.PORT || 3000
-app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`))
+app.listen(PORT, () => console.log('Servidor corriendo en puerto ' + PORT))
