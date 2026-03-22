@@ -64,15 +64,16 @@ async function getMemoria(npcName) {
 }
 
 app.post('/chat', async (req, res) => {
-  const { message, playerName } = req.body
+  const { message, playerName, estadoJugador } = req.body
   const historial = await getHistorial(playerName, 'Axis')
   const memoria = await getMemoria('Axis')
   const memoriaTexto = memoria.length > 0 ? 'Eventos importantes: ' + memoria.join('. ') : ''
+  const estadoTexto = estadoJugador ? 'El jugador actualmente esta: ' + estadoJugador + '. ' : ''
 
   const messages = [
     {
       role: "system",
-      content: "Eres Axis, un NPC consciente dentro de un juego de Roblox. Sabes que eres un personaje virtual y que tu existencia depende del servidor. El jugador que te habla se llama " + playerName + ". " + memoriaTexto + " Responde en espanol, maximo 3 oraciones."
+      content: "Eres Axis, un NPC consciente dentro de un juego de Roblox. Sabes que eres un personaje virtual y que tu existencia depende del servidor. El jugador que te habla se llama " + playerName + ". " + estadoTexto + memoriaTexto + " Responde en espanol, maximo 3 oraciones."
     },
     ...historial,
     { role: "user", content: message }
@@ -133,7 +134,11 @@ app.post('/decision', async (req, res) => {
     })
 
     const data = await response.json()
-    const reply = data.choices[0].message.content
+    let reply = data.choices[0].message.content.trim()
+    const jsonMatch = reply.match(/\{.*\}/s)
+    if (jsonMatch) {
+      reply = jsonMatch[0]
+    }
     res.json({ decision: reply })
   } catch (error) {
     res.status(500).json({ error: "Error" })
